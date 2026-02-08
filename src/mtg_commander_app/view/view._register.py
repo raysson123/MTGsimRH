@@ -9,9 +9,10 @@ class RegisterDeckView(ViewComponent):
         self.font = pygame.font.SysFont("Arial", 25)
         self.status_message = "Aguardando comando..."
         
-        # Botão para iniciar a sincronização
-        self.sync_button = MenuButton(312, 300, 400, 60, "SINCRONIZAR TXT", self.font)
-        self.back_button = MenuButton(312, 450, 400, 60, "VOLTAR", self.font)
+        # Centralizar botões baseado na largura do ecrã
+        screen_width = screen.get_width()
+        self.sync_button = MenuButton(screen_width // 2 - 200, 300, 400, 60, "SINCRONIZAR TXT", self.font)
+        self.back_button = MenuButton(screen_width // 2 - 200, 450, 400, 60, "VOLTAR", self.font)
 
     def handle_events(self, events):
         mouse_pos = pygame.mouse.get_pos()
@@ -20,31 +21,29 @@ class RegisterDeckView(ViewComponent):
 
         for event in events:
             if self.sync_button.is_clicked(event):
-                self.status_message = "Baixando cartas e imagens... aguarde."
-                self.draw() # Força um desenho para mostrar a mensagem
+                self.status_message = "A descarregar cartas... aguarde."
+                self.draw() 
                 pygame.display.flip()
                 
-                # Aciona o componente de storage para baixar tudo
                 try:
+                    # O StorageManager processa o deck.txt
                     self.storage.download_deck_from_txt("deck.txt")
                     self.status_message = "✅ Deck cadastrado com sucesso!"
-                    # Recarrega os dados no controller principal
-                    self.controller.reload_data()
+                    # Forçar o controller a ler o novo database.json
+                    self.controller.reload_data() 
                 except Exception as e:
                     self.status_message = f"❌ Erro: {str(e)}"
 
             if self.back_button.is_clicked(event):
-                return "MENU"
+                return "MENU" # Informa ao ViewManager para trocar o estado
         return None
 
     def draw(self):
-        self.screen.fill((30, 30, 40)) # Azul escuro para diferenciar
+        self.screen.fill((30, 30, 40)) 
         
-        # Título
-        title_surf = self.font.render("CADASTRO DE DECK (OFFLINE MODE)", True, (255, 255, 255))
-        self.screen.blit(title_surf, (250, 100))
+        title_surf = self.font.render("CADASTRO DE DECK (MODO OFFLINE)", True, (255, 255, 255))
+        self.screen.blit(title_surf, (self.screen.get_width() // 2 - 150, 100))
         
-        # Mensagem de Status
         msg_surf = self.font.render(self.status_message, True, (200, 200, 200))
         self.screen.blit(msg_surf, (100, 200))
         

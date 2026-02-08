@@ -1,5 +1,3 @@
-import pygame
-
 class ViewComponent:
     def __init__(self, screen, controller):
         self.screen = screen
