@@ -9,22 +9,22 @@ class DeckController:
         self.reload_data()
 
     def reload_data(self):
-        """Carrega os dados se o arquivo existir; caso contrário, inicia vazio."""
+        """Carrega os dados se o arquivo existir; caso contrário, limpa o estado."""
         if os.path.exists(self.json_path):
-            with open(self.json_path, 'r', encoding='utf-8') as f:
-                self.db = json.load(f)
-            self.commander = self.db.get("commander")
-            self.cards = self.db.get("cards", [])
+            try:
+                with open(self.json_path, 'r', encoding='utf-8') as f:
+                    self.db = json.load(f)
+                self.commander = self.db.get("commander")
+                self.cards = self.db.get("cards", [])
+            except (json.JSONDecodeError, IOError):
+                self._set_empty_state()
         else:
-            # Inicia com dados vazios para evitar erro no primeiro carregamento
-            self.db = {"commander": None, "cards": []}
-            self.cards = []
+            self._set_empty_state()
 
-    def get_commander_data(self):
-        for card in self.cards:
-            if card["name"] == self.commander:
-                return card
-        return None
+    def _set_empty_state(self):
+        self.commander = None
+        self.cards = []
 
-    def get_all_cards(self):
-        return self.cards
+    def has_deck(self):
+        """Retorna True apenas se houver um comandante e cartas cadastradas."""
+        return self.commander is not None and len(self.cards) > 0
