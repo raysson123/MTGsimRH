@@ -1,0 +1,1 @@
+# Mtg Commander App\n\nProjeto para gerenciar decks de Commander usando a API Scryfall.

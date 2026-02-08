@@ -1,0 +1,1 @@
+from mtg_commander_app.api.scryfall_client import ScryfallClient\n\ndef main():\n    print('Iniciando Gerenciador Commander...')\n\nif __name__ == '__main__':\n    main()
