@@ -2,90 +2,101 @@ import os
 import json
 import requests
 import time
+from datetime import date
 
 class MTGStorageManager:
-    def __init__(self, json_path="data/database.json", img_dir="data/assets"):
-        self.json_path = json_path
-        self.img_dir = img_dir
+    def __init__(self, base_path="data"):
+        """Gerencia a persistência de dados e integração com API."""
+        self.base_path = base_path
+        self.profiler_path = os.path.join(base_path, "profiler.json")
+        self.decks_path = os.path.join(base_path, "decks")
+        self.cards_path = os.path.join(base_path, "cards")
         self.api_url = "https://api.scryfall.com/cards/named?exact="
         
-        # Garante que as pastas existam
-        os.makedirs(os.path.dirname(self.json_path), exist_ok=True)
-        os.makedirs(self.img_dir, exist_ok=True)
+        os.makedirs(self.decks_path, exist_ok=True)
+        os.makedirs(self.cards_path, exist_ok=True)
 
-    def save_deck_details(self, deck_name, commander_name):
-        """
-        Atualiza ou define o nome do deck e o comandante no banco de dados.
-        """
-        data = {"deck_name": "Sem Nome", "commander": None, "cards": []}
-        
-        # Se o arquivo já existe, carrega os dados atuais para não sobrescrever a lista de cartas
-        if os.path.exists(self.json_path):
-            with open(self.json_path, 'r', encoding='utf-8') as f:
-                try:
-                    data = json.load(f)
-                except json.JSONDecodeError:
-                    pass
+    def carregar_perfil(self):
+        """Lê o perfil do utilizador para exibir no menu."""
+        if os.path.exists(self.profiler_path):
+            with open(self.profiler_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return {"player_info": {"nickname": "Conjurador"}, "decks_info": {"decks": []}}
 
-        data["deck_name"] = deck_name
-        data["commander"] = commander_name
+    def download_deck_from_txt(self, caminho_completo):
+        """Lê o ficheiro selecionado e extrai dados da API, incluindo o tipo da carta."""
+        cards_extracted = []
+        with open(caminho_completo, 'r', encoding='utf-8') as f:
+            linhas = [l.strip() for l in f if l.strip()]
 
-        with open(self.json_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-        
-        print(f"✅ Detalhes salvos: {deck_name} | Comandante: {commander_name}")
+        for linha in linhas:
+            parts = linha.split(' ', 1)
+            qty = int(parts[0]) if parts[0].isdigit() else 1
+            name = parts[1] if parts[0].isdigit() else linha
 
-    def download_deck_from_txt(self, txt_path):
-        """
-        Lê o arquivo .txt, busca dados na Scryfall e salva a lista inicial de cartas.
-        """
-        if not os.path.exists(txt_path):
-            raise FileNotFoundError(f"Arquivo {txt_path} não encontrado!")
-
-        cards_to_save = []
-        with open(txt_path, 'r', encoding='utf-8') as f:
-            lines = [line.strip() for line in f if line.strip()]
-
-        for line in lines:
-            # Tenta separar quantidade do nome (Ex: "1 Sol Ring")
-            parts = line.split(' ', 1)
-            qty = 1
-            name = line
-            if parts[0].isdigit():
-                qty = int(parts[0])
-                name = parts[1]
-
-            # Busca na Scryfall API
             response = requests.get(f"{self.api_url}{name}")
             if response.status_code == 200:
-                card_data = response.json()
-                cards_to_save.append({
-                    "name": card_data.get("name"),
-                    "mana_cost": card_data.get("mana_cost"),
-                    "type_line": card_data.get("type_line"),
-                    "image_url": card_data.get("image_uris", {}).get("normal"),
+                data = response.json()
+                cards_extracted.append({
+                    "name": data.get("name"),
+                    "type_line": data.get("type_line", ""), # FUNDAMENTAL PARA O FILTRO DE LENDÁRIAS
+                    "mana_cost": data.get("mana_cost", ""),
+                    "image_url": data.get("image_uris", {}).get("normal"),
                     "quantity": qty
                 })
-                # Delay para respeitar limite da API
-                time.sleep(0.1)
+                time.sleep(0.1) # Respeita o limite da API Scryfall
+        
+        return cards_extracted
 
-        # Salva a lista de cartas mantendo os campos de nome e comandante
-        db_content = {
-            "deck_name": "Novo Deck",
-            "commander": None,
-            "cards": cards_to_save
-        }
+    def registrar_novo_deck(self, deck_model):
+        """Cria um novo registro e pasta para o deck."""
+        perfil = self.carregar_perfil()
+        novo_id = len(perfil['decks_info']['decks']) + 1
+        
+        # Atualiza Profiler
+        perfil['decks_info']['decks'].append({
+            "id": novo_id, "name": deck_model.name, "created_at": str(date.today())
+        })
+        with open(self.profiler_path, 'w', encoding='utf-8') as f:
+            json.dump(perfil, f, indent=4)
 
-        with open(self.json_path, 'w', encoding='utf-8') as f:
-            json.dump(db_content, f, indent=4, ensure_ascii=False)
+        self._salvar_arquivos_deck(deck_model, f"{novo_id}_{deck_model.deck_id}")
 
-    def get_commander_data(self):
-        """Retorna os dados completos do comandante se estiver definido."""
-        if os.path.exists(self.json_path):
-            with open(self.json_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                commander_name = data.get("commander")
-                for card in data.get("cards", []):
-                    if card["name"] == commander_name:
-                        return card
-        return None
+    def update_deck_existente(self, deck_model):
+        """Atualiza um deck já existente sobrescrevendo os ficheiros."""
+        perfil = self.carregar_perfil()
+        # Procura a pasta existente pelo nome/id no profiler
+        deck_data = next((d for d in perfil['decks_info']['decks'] if d['name'] == deck_model.name), None)
+        
+        if deck_data:
+            folder_name = f"{deck_data['id']}_{deck_model.deck_id}"
+            self._salvar_arquivos_deck(deck_model, folder_name)
+            print(f"[OK] Deck {deck_model.name} atualizado.")
+
+    def _salvar_arquivos_deck(self, deck_model, folder_name):
+        """Lógica interna para salvar JSONs de configuração e cartas."""
+        path_cards = os.path.join(self.cards_path, folder_name)
+        os.makedirs(path_cards, exist_ok=True)
+        
+        # Salva cards_info.json (Dados completos)
+        with open(os.path.join(path_cards, "cards_info.json"), 'w', encoding='utf-8') as f:
+            json.dump(deck_model.get_full_json(), f, indent=4, ensure_ascii=False)
+            
+        # Salva config no diretório de decks
+        with open(os.path.join(self.decks_path, f"{deck_model.deck_id}.json"), 'w', encoding='utf-8') as f:
+            json.dump(deck_model.get_config_data(), f, indent=4, ensure_ascii=False)
+    def verificar_perfil_existente(self):
+        """
+        Verifica se o arquivo profiler.json existe e se contém um nickname válido.
+        Retorna True se o perfil estiver configurado, caso contrário, False.
+        """
+        if os.path.exists(self.profiler_path):
+            try:
+                with open(self.profiler_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    # Verifica se a estrutura mínima de player_info e nickname existe
+                    if "player_info" in data and data["player_info"].get("nickname"):
+                        return True
+            except (json.JSONDecodeError, IOError):
+                return False
+        return False

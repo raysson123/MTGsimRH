@@ -31,6 +31,7 @@ class MenuButton:
         screen.blit(text_surf, text_rect)
 
     def is_clicked(self, event):
+        """Verifica clique com o botão esquerdo do mouse."""
         return event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.is_hovered
 
 class UIComponents:
@@ -39,13 +40,14 @@ class UIComponents:
         cx = largura // 2
         
         # --- DEFINIÇÃO DE CAMADAS VERTICAIS (Y) ---
-        y_input_sala = 180
+        # Removido o y_input_sala para centralizar o Nickname no Menu
         y_botoes_jogadores = 390
         y_botao_abrir = 480
         y_botao_cadastrar = 550
 
         # --- COMPONENTES DO MENU PRINCIPAL ---
-        self.campo_texto_sala = pygame.Rect(cx - 150, y_input_sala, 300, 40)
+        # O campo_texto_sala foi desativado conforme o novo design
+        self.campo_texto_sala = None 
         
         largura_btn_jog = 80
         self.rects_jogadores = {
@@ -57,10 +59,9 @@ class UIComponents:
         self.rect_criar = pygame.Rect(cx - 150, y_botao_abrir, 300, 50)
         self.rect_cadastrar = pygame.Rect(cx - 150, y_botao_cadastrar, 300, 50)
 
-        # --- COMPONENTES DE CADASTRO (CORREÇÃO DO ERRO) ---
+        # --- COMPONENTES DE GESTÃO (CADASTRO/UPDATE) ---
         self.btn_voltar = pygame.Rect(20, 20, 100, 40)
         self.rect_input_nome_deck = pygame.Rect(cx - 150, 200, 300, 40)
-        # Atributo que faltava para sincronizar o ficheiro TXT
         self.btn_selecionar_arquivo = pygame.Rect(cx - 150, 300, 300, 50) 
         self.btn_confirmar_cadastro = pygame.Rect(cx - 150, 450, 300, 50)
         
@@ -70,12 +71,16 @@ class UIComponents:
 
     @staticmethod
     def desenhar_caixa_texto(surface, rect, texto, fonte, ativo, placeholder=""):
-        """Desenha campos de input estilizados."""
-        cor_borda = (100, 100, 255) if ativo else (80, 80, 80)
-        pygame.draw.rect(surface, (30, 30, 35), rect, border_radius=5)
+        """Desenha campos de input utilizando as novas constantes do GameStyle."""
+        # Utiliza as novas cores de borda ativa definidas no style.py
+        cor_borda = getattr(GameStyle, 'COLOR_INPUT_ACTIVE', (100, 100, 255)) if ativo else getattr(GameStyle, 'COLOR_INPUT_BORDER', (80, 80, 80))
+        cor_fundo = getattr(GameStyle, 'COLOR_INPUT_BG', (30, 30, 35))
+        
+        pygame.draw.rect(surface, cor_fundo, rect, border_radius=5)
         pygame.draw.rect(surface, cor_borda, rect, 2, border_radius=5)
         
         txt_final = texto if texto else placeholder
+        # RESOLUÇÃO DO ERRO: Usa COLOR_TEXT agora presente no GameStyle
         cor_txt = GameStyle.COLOR_TEXT if texto else (120, 120, 120)
         img_texto = fonte.render(txt_final, True, cor_txt)
         surface.blit(img_texto, (rect.x + 10, rect.centery - img_texto.get_height() // 2))
