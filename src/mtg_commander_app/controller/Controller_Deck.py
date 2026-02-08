@@ -9,13 +9,14 @@ class DeckController:
         self.reload_data()
 
     def reload_data(self):
-        """Tenta carregar os dados se o ficheiro existir, senão inicia vazio."""
+        """Carrega os dados se o arquivo existir; caso contrário, inicia vazio."""
         if os.path.exists(self.json_path):
             with open(self.json_path, 'r', encoding='utf-8') as f:
                 self.db = json.load(f)
             self.commander = self.db.get("commander")
             self.cards = self.db.get("cards", [])
         else:
+            # Inicia com dados vazios para evitar erro no primeiro carregamento
             self.db = {"commander": None, "cards": []}
             self.cards = []
 
