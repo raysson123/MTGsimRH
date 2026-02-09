@@ -9,8 +9,7 @@ class MTGStorageManager:
     def __init__(self, base_path="data"):
         """
         Gerencia o armazenamento técnico e o download de assets (imagens).
-        Estrutura de dados: data/cards/[Categoria]/
-        Estrutura de imagens: assets/cards/[Categoria]/.
+        Estrutura de dados: data/cards/[Categoria]/.
         """
         self.base_path = base_path
         self.profiler_path = os.path.join(base_path, "profiler.json")
@@ -28,7 +27,7 @@ class MTGStorageManager:
 
     def analisar_txt(self, caminho_txt):
         """
-        ETAPA 1: Pré-carga. Valida o arquivo e retorna os dados para a interface.
+        ETAPA 1: Pré-carga. Apenas lê o arquivo TXT para contar as linhas.
         """
         try:
             if not os.path.exists(caminho_txt):
@@ -42,26 +41,28 @@ class MTGStorageManager:
 
     def processar_download_com_progresso(self, lista_nomes, callback_progresso):
         """
-        ETAPA 2: Download real com reporte de progresso para a View.
+        ETAPA 2: Processamento real. Consulta a API e reporta progresso à View.
         """
         total = len(lista_nomes)
         cards_extraidos = []
 
         for i, linha in enumerate(lista_nomes):
+            # Limpeza do nome (remove quantidades como '1x ' ou '1 ')
             parts = linha.split(' ', 1)
             qty = int(parts[0]) if parts[0].isdigit() else 1
             name = parts[1] if parts[0].isdigit() else linha
             
-            # Notifica a tela de progresso
+            # Notifica a tela de progresso para atualizar a barra e o texto
             if callback_progresso:
                 callback_progresso(i + 1, total, name)
 
             try:
+                # Consulta rápida à API
                 response = requests.get(f"{self.api_url}{name}", timeout=10)
                 if response.status_code == 200:
                     data = response.json()
                     
-                    # Tratamento de imagem para cartas de dupla face
+                    # Tratamento de imagem (Frente/Verso)
                     img = data.get("image_uris", {}).get("normal")
                     if not img and "card_faces" in data:
                         img = data["card_faces"][0].get("image_uris", {}).get("normal")
@@ -79,9 +80,10 @@ class MTGStorageManager:
                         "image_url": img,
                         "quantity": qty
                     })
-                    time.sleep(0.08) # Delay cortês Scryfall
+                    # Delay cortês para não ser bloqueado pela Scryfall
+                    time.sleep(0.08) 
             except Exception as e:
-                print(f"[ERRO] Falha ao baixar {name}: {e}")
+                print(f"[ERRO] Falha ao processar {name}: {e}")
                 
         return cards_extraidos
 
@@ -98,7 +100,7 @@ class MTGStorageManager:
         return "Outros"
 
     def _baixar_imagem_local(self, url, categoria, nome_arquivo):
-        """Salva a imagem fisicamente em assets/cards/[Categoria]/."""
+        """Salva a imagem fisicamente para evitar downloads repetidos."""
         if not url: return None
         pasta_destino = os.path.join(self.assets_cards_path, categoria)
         os.makedirs(pasta_destino, exist_ok=True)
@@ -117,7 +119,7 @@ class MTGStorageManager:
         return caminho_local
 
     def _salvar_arquivos_deck(self, deck_model):
-        """Gera os arquivos JSON e vincula as imagens locais."""
+        """Gera o arquivo de deck e salva cartas individualmente."""
         deck_config = {
             "name": deck_model.name,
             "commander": deck_model.commander,
@@ -131,7 +133,7 @@ class MTGStorageManager:
             categoria = self._get_categoria(card.get("type_line", ""))
             nome_base = card.get("name").replace(" ", "_").lower().replace("/", "")
             
-            # Download/Vinculação de imagem local
+            # Converte imagem remota para local
             caminho_img = self._baixar_imagem_local(card.get("image_url"), categoria, nome_base)
             card["image_url"] = caminho_img
 
@@ -156,7 +158,7 @@ class MTGStorageManager:
     # --- LÓGICA DE PERFIL (PROFILER) ---
 
     def carregar_perfil(self):
-        """Lê os dados do conjurador."""
+        """Lê o arquivo de perfil do usuário."""
         if os.path.exists(self.profiler_path):
             try:
                 with open(self.profiler_path, 'r', encoding='utf-8') as f:
@@ -165,13 +167,11 @@ class MTGStorageManager:
         return {"player_info": {"nickname": ""}, "decks_info": {"decks": []}}
 
     def verificar_perfil_existente(self):
-        """Verifica se o nickname existe no sistema."""
+        """Retorna True se o usuário já tiver um nickname."""
         return bool(self.carregar_perfil().get("player_info", {}).get("nickname"))
 
     def inicializar_perfil_usuario(self, nickname):
-        """
-        RESOLVE O ERRO DE ATRIBUTO: Salva o nome do novo conjurador.
-        """
+        """Cria o perfil inicial do conjurador."""
         perfil = self.carregar_perfil()
         perfil["player_info"] = {
             "nickname": nickname,
@@ -181,7 +181,7 @@ class MTGStorageManager:
         print(f"[OK] Perfil criado para: {nickname}")
 
     def salvar_deck_inteligente(self, deck_model):
-        """Sincroniza o deck com o profiler."""
+        """Verifica se o deck já existe para atualizar ou criar novo."""
         perfil = self.carregar_perfil()
         existe = any(d['name'].lower() == deck_model.name.lower() for d in perfil.get('decks_info', {}).get('decks', []))
         if existe:
@@ -190,6 +190,7 @@ class MTGStorageManager:
             self.registrar_novo_deck(deck_model)
 
     def registrar_novo_deck(self, deck_model):
+        """Adiciona o deck ao profiler e salva os arquivos."""
         perfil = self.carregar_perfil()
         novo_id = len(perfil['decks_info']['decks']) + 1
         perfil['decks_info']['decks'].append({
@@ -200,7 +201,7 @@ class MTGStorageManager:
         self._salvar_arquivos_deck(deck_model)
 
     def _salvar_json(self, caminho, dados):
-        """Escrita segura de JSON com suporte a UTF-8."""
+        """Escrita segura de arquivos JSON em UTF-8."""
         try:
             with open(caminho, 'w', encoding='utf-8') as f:
                 json.dump(dados, f, indent=4, ensure_ascii=False)

@@ -1,7 +1,7 @@
 {
     "player_info": {
         "nickname": "raysson",
-        "created_at": "2026-02-08 23:01:13"
+        "created_at": "2026-02-08 23:45:18"
     },
     "player_stats": {
         "total_matches": 0,
@@ -10,6 +10,13 @@
     },
     "decks_info": {
         "total_decks": 0,
-        "decks": []
+        "decks": [
+            {
+                "id": 1,
+                "name": "teysa",
+                "commander": "Teysa Karlov",
+                "created_at": "2026-02-08"
+            }
+        ]
     }
 }

@@ -1,11 +1,11 @@
 import pygame
+import threading
 from APP.utils.style import GameStyle
-from APP.utils.ui_components import MenuButton
 
 class RegisterProgressView:
     def __init__(self, screen, storage, deck_name, file_path):
         """
-        Gerencia o fluxo de cadastro com barra de progresso e validação em duas etapas.
+        Tela de Download com suporte a Threading para não travar o jogo.
         """
         self.screen = screen
         self.storage = storage
@@ -13,105 +13,120 @@ class RegisterProgressView:
         self.file_path = file_path
         self.fontes = GameStyle.get_fonts()
         
-        # --- Estados do Processo ---
-        self.etapa = "ANALISANDO" # ANALISANDO -> BAIXANDO -> CONCLUIDO
-        self.progresso = 0
-        self.total = 1
-        self.card_atual = "Aguardando..."
-        self.mostrar_sucesso = False
+        # Variáveis de Estado Visual
+        self.progresso_atual = 0
+        self.progresso_total = 0
+        self.carta_atual = "Inicializando..."
+        self.concluido = False
+        self.erro = None
         
-        # --- UI do Pop-up de Sucesso ---
-        cx, cy = self.screen.get_width() // 2, self.screen.get_height() // 2
-        self.popup_rect = pygame.Rect(cx - 200, cy - 100, 400, 220)
-        self.btn_voltar = MenuButton(
-            pygame.Rect(cx - 100, cy + 50, 200, 45), 
-            "VOLTAR AO MENU", 
-            self.fontes['menu']
-        )
-
-    def callback_progresso(self, atual, total, nome_card):
-        """Atualiza os dados da barra enquanto o storage faz o download."""
-        self.progresso = atual
-        self.total = total
-        self.card_atual = nome_card
-        # Força o redesenho para o usuário ver a animação
-        self.draw()
-        pygame.display.flip()
+        # Controle de Thread
+        self.thread_iniciada = False
 
     def iniciar_fluxo(self, deck_model):
-        """Executa a análise prévia e o download real dos dados e imagens."""
-        # 1. ETAPA DE ANÁLISE (Pré-carga)
-        qtd, linhas = self.storage.analisar_txt(self.file_path)
-        
-        if qtd > 0:
-            self.etapa = "BAIXANDO ASSETS"
-            # 2. ETAPA DE DOWNLOAD (Processamento)
-            cards = self.storage.processar_download_com_progresso(linhas, self.callback_progresso)
-            
-            # 3. CONFIGURAÇÃO E SALVAMENTO
+        """
+        Chamado pelo ViewManager. Inicia o download em uma thread separada.
+        """
+        if not self.thread_iniciada:
+            # Configura o modelo com o nome (o comandante já foi setado no ViewManager)
             deck_model.name = self.deck_name
-            deck_model.deck_id = self.deck_name.lower().replace(" ", "_")
-            deck_model.limpar_deck()
             
-            for c in cards:
-                deck_model.adicionar_carta(c)
+            # Cria e inicia a thread para não congelar a janela
+            t = threading.Thread(target=self._tarefa_download, args=(deck_model,))
+            t.daemon = True # Garante que a thread morra se o jogo fechar
+            t.start()
+            self.thread_iniciada = True
+
+    def _tarefa_download(self, deck_model):
+        """
+        Lógica pesada que roda em segundo plano.
+        """
+        try:
+            # 1. Ler arquivo
+            qtd, linhas = self.storage.analisar_txt(self.file_path)
+            self.progresso_total = qtd
             
-            # Salva JSONs e Imagens em assets/cards/Categoria/
+            # 2. Baixar cartas (atualiza a barra via callback)
+            cards = self.storage.processar_download_com_progresso(
+                linhas, 
+                self._atualizar_progresso
+            )
+            
+            # 3. Atualizar Modelo e Salvar
+            deck_model.cards = cards
             self.storage.salvar_deck_inteligente(deck_model)
             
-            self.etapa = "CONCLUIDO"
-            self.mostrar_sucesso = True
-        else:
-            print("[ERRO] Arquivo vazio ou inválido.")
+            # Finaliza
+            self.concluido = True
+            self.carta_atual = "Concluído! Pressione qualquer tecla."
+            
+        except Exception as e:
+            self.erro = str(e)
+            self.carta_atual = "Erro no download."
 
-    def handle_event(self, events):
-        """Gerencia o clique no botão de finalização."""
-        mouse_pos = pygame.mouse.get_pos()
-        if self.mostrar_sucesso:
-            self.btn_voltar.update(mouse_pos)
+    def _atualizar_progresso(self, atual, total, nome):
+        """Callback chamado pelo storage para atualizar a interface."""
+        self.progresso_atual = atual
+        self.progresso_total = total
+        self.carta_atual = nome
+
+    def handle_events(self, events):
+        """
+        MÉTODO OBRIGATÓRIO (Resolvendo o AttributeError).
+        Verifica se acabou e aguarda comando para sair.
+        """
+        # Se ocorreu erro ou terminou, qualquer tecla volta ao Menu
+        if self.concluido or self.erro:
             for event in events:
-                if self.btn_voltar.is_clicked(event):
-                    return "MENU" # Sinaliza ao ViewManager para voltar
+                if event.type in [pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN]:
+                    return "MENU"
+        
+        # Enquanto baixa, não faz nada (bloqueia saída para não corromper)
         return None
 
     def draw(self):
-        """Renderiza a interface de carregamento e o pop-up final."""
+        """Renderiza a barra de progresso."""
         self.screen.fill(GameStyle.COLOR_BG)
-        cx, cy = self.screen.get_width() // 2, self.screen.get_height() // 2
-
-        # Título da Etapa
-        txt_etapa = self.fontes['menu'].render(self.etapa, True, GameStyle.COLOR_ACCENT)
-        self.screen.blit(txt_etapa, (cx - txt_etapa.get_width() // 2, cy - 100))
-
-        # Barra de Progresso
-        largura_barra = 400
-        pygame.draw.rect(self.screen, (40, 40, 45), (cx - 200, cy - 20, largura_barra, 30), border_radius=15)
+        cx, cy = self.screen.get_rect().center
         
-        preenchimento = int((self.progresso / self.total) * largura_barra)
-        if preenchimento > 5:
-            pygame.draw.rect(self.screen, GameStyle.COLOR_ACCENT, (cx - 200, cy - 20, preenchimento, 30), border_radius=15)
-
-        # Informações do Card Atual
-        txt_card = self.fontes['label'].render(f"Processando: {self.card_atual}", True, (180, 180, 180))
-        self.screen.blit(txt_card, (cx - txt_card.get_width() // 2, cy + 30))
-
-        # Pop-up de Sucesso
-        if self.mostrar_sucesso:
-            self._draw_modal_sucesso(cx, cy)
-
-    def _draw_modal_sucesso(self, cx, cy):
-        # Overlay escuro
-        overlay = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 210))
-        self.screen.blit(overlay, (0, 0))
-
-        # Moldura do Pop-up
-        pygame.draw.rect(self.screen, (30, 35, 30), self.popup_rect, border_radius=15)
-        pygame.draw.rect(self.screen, (0, 200, 80), self.popup_rect, 2, border_radius=15)
-
-        msg = self.fontes['popup'].render("DECK PRONTO!", True, (255, 255, 255))
-        sub = self.fontes['label'].render("Dados e imagens salvos com sucesso.", True, (180, 180, 180))
+        # Título
+        titulo = "BAIXANDO IMAGENS..." if not self.concluido else "CADASTRO FINALIZADO!"
+        cor_titulo = GameStyle.COLOR_ACCENT if not self.erro else GameStyle.COLOR_DANGER
         
-        self.screen.blit(msg, (cx - msg.get_width() // 2, cy - 60))
-        self.screen.blit(sub, (cx - sub.get_width() // 2, cy - 20))
-        self.btn_voltar.draw(self.screen)
+        txt_t = self.fontes['titulo'].render(titulo, True, cor_titulo)
+        self.screen.blit(txt_t, (cx - txt_t.get_width()//2, cy - 100))
+
+        # Se houver erro, exibe e para
+        if self.erro:
+            msg = self.fontes['status'].render(f"Erro: {self.erro}", True, (255, 100, 100))
+            self.screen.blit(msg, (cx - msg.get_width()//2, cy))
+            info = self.fontes['label'].render("Pressione qualquer tecla para voltar", True, (150, 150, 150))
+            self.screen.blit(info, (cx - info.get_width()//2, cy + 50))
+            return
+
+        # Desenha a Barra de Progresso
+        largura_barra = 600
+        altura_barra = 30
+        pos_x = cx - largura_barra // 2
+        
+        # Fundo da barra
+        pygame.draw.rect(self.screen, (40, 40, 40), (pos_x, cy, largura_barra, altura_barra), border_radius=15)
+        
+        # Preenchimento
+        if self.progresso_total > 0:
+            pct = self.progresso_atual / self.progresso_total
+            largura_fill = int(largura_barra * pct)
+            pygame.draw.rect(self.screen, GameStyle.COLOR_ACCENT, (pos_x, cy, largura_fill, altura_barra), border_radius=15)
+
+        # Texto de Status (Carta Atual)
+        txt_status = self.fontes['status'].render(f"{self.carta_atual}", True, (200, 200, 200))
+        # Limita largura do texto para não sair da tela
+        if txt_status.get_width() > 800:
+            txt_status = pygame.transform.scale(txt_status, (800, txt_status.get_height()))
+            
+        self.screen.blit(txt_status, (cx - txt_status.get_width()//2, cy + 50))
+        
+        # Instrução final
+        if self.concluido:
+            info = self.fontes['label'].render("Clique para voltar ao Menu", True, (100, 255, 100))
+            self.screen.blit(info, (cx - info.get_width()//2, cy + 90))
