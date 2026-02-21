@@ -1,19 +1,19 @@
 
+# 🎴 MTG Simulator 
 
-# 🎴  MTG Simulator
-
-O **Machete** é um simulador de Magic: The Gathering (MTG) focado no formato Commander, desenvolvido em Python com a biblioteca Pygame. O projeto utiliza uma arquitetura MVC (Model-View-Controller) para garantir uma separação clara entre as regras de jogo, o gerenciamento de dados e a interface visual.
+O **MTG Simulator** é um ambiente de simulação para Magic: The Gathering, focado no formato **Commander (EDH)**. Desenvolvido em Python com a biblioteca **Pygame**, o projeto utiliza uma arquitetura **MVC** (Model-View-Controller) rigorosa para garantir alta fidelidade às regras oficiais e performance fluida.
 
 ## 👨‍💻 Desenvolvedores
 
 * **HERANDY ALEXSANDER MELO DE BARROS**
-* **Raysson (Machete)**
+* **Raysson**
 
 ## 🚀 Como Instalar e Rodar
 
 ### 1. Pré-requisitos
 
-Certifique-se de ter o **Python 3.10 ou superior** instalado em sua máquina.
+* **Python 3.10** ou superior.
+* **PIP** (Gerenciador de pacotes do Python).
 
 ### 2. Configurar Ambiente Virtual (Recomendado)
 
@@ -28,18 +28,17 @@ source venv/bin/activate
 
 ### 3. Instalar Dependências
 
-O projeto utiliza bibliotecas específicas para performance e validação de dados. Instale-as utilizando o arquivo fornecido:
-
 ```bash
 pip install -r requirements.txt
 
 ```
 
-**Principais Tecnologias:**
+**Tecnologias Utilizadas:**
 
-* **Pygame (2.6.1):** Motor gráfico e gerenciamento de eventos.
-* **Pydantic (2.12.5):** Modelagem e validação de dados das cartas.
-* **Requests:** Integração com a API Scryfall.
+* **Pygame (2.6.1):** Motor gráfico e gerenciamento de inputs.
+* **Pydantic (2.12.5):** Modelagem imutável e validação de dados das cartas.
+* **Requests:** Integração com a API Scryfall para busca de metadados.
+* **Tkinter:** Interface de sistema para seleção de arquivos `.txt`.
 
 ### 4. Iniciar o Simulador
 
@@ -50,34 +49,36 @@ python main.py
 
 ---
 
-## 📂 Estrutura de Pastas (Hierarquia Correta)
+## 📂 Estrutura de Pastas (Arquitetura MVC)
 
-* **`APP/core/`:** Motores principais (`engine.py`) e gerenciador de telas (`screen_manager.py`).
-* **`APP/domain/`:** Lógica de negócio, incluindo `CardModel`, `MatchModel` e o motor de regras `RuleEngine`.
-* **`APP/infrastructure/`:** Serviços externos (Scryfall) e gestão de mídia (`AssetManager`).
-* **`APP/UI/`:** Componentes visuais (`CardUI`, `ZoneUI`) e telas do jogo.
-* **`data/`:** Armazenamento de perfis e decks em JSON (protegido pelo `.gitignore`).
-* **`assets/`:** Armazenamento das artes das cartas (protegido pelo `.gitignore`).
-
----
-
-## 🚦 Etapa Atual do Projeto: **Estabilidade e Integração Visual**
-
-O projeto concluiu a fase de **Fiação de Dados**, onde a interface visual foi conectada com sucesso aos modelos de dados reais.
-
-### ✅ O que já está funcionando:
-
-* **Gestão de Assets Direta:** O `AssetManager` carrega imagens usando o caminho exato salvo no JSON (`local_image_path`), eliminando erros de "Imagem não encontrada".
-* **Sincronização de Mesa:** A `MatchView` utiliza o `GameUIManager` para manter as cartas sincronizadas entre a lógica do jogo e o que é exibido na tela.
-* **Sistema de Registro:** Importação de decks via `.txt` com download automático de artes e estruturação de dados offline.
-* **Motor de Regras Inicial:** Validação de descida de terrenos e custos de mana básicos.
-
-### 🛠️ Próximos Passos (Próxima Etapa):
-
-1. **Mecânica de Mana Ativa:** Implementar o clique nos terrenos para "virar" (Tap) e adicionar mana à reserva do jogador.
-2. **Lógica de Combate:** Fase de declaração de atacantes e cálculo de dano.
-3. **Inteligência Artificial (Bot):** Comportamento automatizado para o Oponente 1 (P2).
+* **`APP/core/`**: Motores principais de renderização (`engine.py`) e controle de telas (`screen_manager.py`).
+* **`APP/domain/`**: Lógica pura de Magic. Contém o `MatchModel` (estado global), `PlayerModel` (gavetas de zona) e o `RuleEngine` (o Juiz do jogo).
+* **`APP/controllers/`**: O cérebro do projeto. Conecta os dados à interface e orquestra transições de fase e turno.
+* **`APP/UI/`**: Componentes visuais modulares (`CardUI`, `ZoneUI`) e layouts dinâmicos baseados em grade.
+* **`APP/infrastructure/`**: Serviços de persistência, download de imagens e gestão de cache (`AssetManager`).
+* **`data/` & `assets/**`: Repositórios locais de JSONs e imagens (protegidos contra commits pesados via `.gitignore`).
 
 ---
 
-**Projeto MTG** - *Desenvolvido para alta performance e fidelidade às regras do Magic.*
+## 🚦 Etapa Atual: **Mecânicas de Campo e Estabilidade**
+
+O projeto avançou para a fase de **Simulação de Campo**, onde as cartas não são apenas visualizadas, mas interagem fisicamente com as zonas de jogo.
+
+### ✅ Funcionalidades Prontas:
+
+* **Layout Profissional:** Interface inspirada no MTG Arena, com barra superior de fases fixa e barra inferior de ações para evitar poluição no campo.
+* **Sincronização em Tempo Real:** O `GameUIManager` garante que toda alteração na mão ou campo do jogador seja refletida instantaneamente na tela através de cache de memória RAM.
+* **Física de D20:** Sistema de rolagem de iniciativa com física pseudo-3D e animações de impacto.
+* **Importação Automática:** Lê arquivos `.txt`, baixa artes em alta resolução da Scryfall e estrutura os dados localmente para uso offline.
+* **Efeito de Embaralhamento:** Animação dinâmica de cartas voando e sobreposição durante o Shuffle inicial.
+
+### 🛠️ Próximos Passos:
+
+1. **Mecânica de Tap/Untap:** Implementar o giro das cartas (90°) para geração de mana e ataque.
+2. **Lógica de Combate:** Declaração formal de atacantes/bloqueadores e cálculo automático de vida.
+3. **IA do Oponente:** Inteligência artificial básica para o P2 tomar decisões de descida de terreno e feitiços.
+
+---
+
+**Projeto MTG Simulator** - *Desenvolvido para alta performance e fidelidade às regras do Magic.*
+

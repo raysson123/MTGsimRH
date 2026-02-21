@@ -5,36 +5,67 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+.Python
+env/
 build/
+develop-eggs/
 dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
 *.egg-info/
+.installed.cfg
+*.egg
 
 # Ambientes Virtuais e Variáveis (NUNCA SUBIR)
 venv/
 .venv/
 env/
 .env
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
 
 # ==========================================
 # ARQUIVOS DE SISTEMA OPERACIONAL E IDEs
 # ==========================================
 .DS_Store
 Thumbs.db
+desktop.ini
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # ==========================================
-# DADOS DO SIMULADOR MACHETE (Ignorar BD e Imagens)
+# DADOS DO SIMULADOR MACHETE (MTGSim)
 # ==========================================
-# Ignora todas as imagens baixadas
+# Ignora todas as imagens baixadas para não pesar o Git
 assets/cards/**/*.jpg
 assets/cards/**/*.png
 assets/cards/**/*.jpeg
+assets/cards/temp/
 
-# Ignora os JSONs gerados pelo sistema e pelo jogador
+# Ignora os JSONs de dados sensíveis e gerados
+# (Mantendo apenas o exemplo ou estrutura se necessário)
 data/profiles/*.json
 data/decks/*.json
 data/cards/**/*.json
+data/temp/
 
-# Ignora logs de erro
+# Ignora logs de execução e erro
 *.log
+logs/
+error_reports/
+
+# Arquivos de backup do PyCharm ou editores
+*~
+\.project
+\.pydevproject
+\.settings/

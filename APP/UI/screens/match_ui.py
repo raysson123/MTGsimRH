@@ -7,6 +7,7 @@ from APP.UI.styles.colors import BG, TEXT_PRIMARY, TEXT_SEC, ACCENT, SUCCESS, DA
 from APP.UI.styles.fonts import get_fonts
 from APP.UI.components.card_ui import CardUI
 from APP.UI.components.zone_ui import ZoneUI
+# Certifique-se de que o LayoutEngine no seu grid.py tenha o método get_grid_layout
 from APP.UI.layout.grid import LayoutEngine
 from APP.UI.components.button import MenuButton
 
@@ -30,7 +31,7 @@ class MatchView(BaseScreen):
 
         self.dice_ui = DiceOverlayUI(self.largura, self.altura, self.fontes)
         
-        # INICIALIZA AS BARRAS
+        # INICIALIZA AS BARRAS DE ESTADO E FASE
         self.mana_bar_ui = ManaBarUI(self.fontes)
         self.phase_bar_ui = PhaseBarUI(self.largura, self.altura, self.fontes)
 
@@ -53,26 +54,27 @@ class MatchView(BaseScreen):
             except Exception:
                 pass
 
+        # Inicializa as zonas de jogo respeitando as novas barras
         self._inicializar_zonas()
 
-        # Botões Centrais (Início e Mulligan)
+        # Botões Centrais (Telas de transição)
         cx, cy = self.largura // 2, self.altura // 2
         self.btn_rolar_iniciativa = MenuButton(pygame.Rect(cx - 150, cy - 25, 300, 50), "ROLAR INICIATIVA (D20)", self.fontes['menu'])
         self.btn_comecar_partida = MenuButton(pygame.Rect(cx - 150, cy + 100, 300, 50), "COMPRAR CARTAS E INICIAR", self.fontes['menu'])
         self.btn_manter_mao = MenuButton(pygame.Rect(cx - 160, cy + 20, 150, 50), "MANTER", self.fontes['menu'])
         self.btn_trocar_mao = MenuButton(pygame.Rect(cx + 10, cy + 20, 150, 50), "MULLIGAN", self.fontes['menu'])
         
-        # BOTÕES DA BARRA INFERIOR
+        # BARRA INFERIOR: BOTÕES DE AÇÃO
         y_barra_inf = self.altura - 55
         self.btn_dado_lateral = MenuButton(pygame.Rect(20, y_barra_inf, 80, 45), "D20", self.fontes['menu'])
         self.btn_passar_fase = MenuButton(pygame.Rect(self.largura - 200, y_barra_inf, 180, 45), "PASSAR FASE", self.fontes['menu'])
 
     def _get_area_jogador(self, id_visual, qtd):
         topo, base = 40, 60
-        altura_disponivel = self.altura - topo - base
-        meio_campo = altura_disponivel // 2
-        if id_visual == 2: return pygame.Rect(0, topo, self.largura, meio_campo)      
-        return pygame.Rect(0, topo + meio_campo, self.largura, meio_campo)
+        altura_util = self.altura - topo - base
+        meio = altura_util // 2
+        if id_visual == 2: return pygame.Rect(0, topo, self.largura, meio)      
+        return pygame.Rect(0, topo + meio, self.largura, meio)
 
     def _inicializar_zonas(self):
         for p_id in self.match.players.keys():
@@ -140,9 +142,7 @@ class MatchView(BaseScreen):
                         self.fase_jogo = "ANIMACAO_EMBARALHAR"; self.tempo_animacao = pygame.time.get_ticks()
             return None
 
-        if self.dice_ui.ativo:
-            self.dice_ui.handle_events(events, mouse_pos)
-            return None
+        if self.dice_ui.ativo: self.dice_ui.handle_events(events, mouse_pos); return None
 
         self.btn_dado_lateral.update(mouse_pos); self.btn_passar_fase.update(mouse_pos)
         for c in self.mao_ui: c.update(mouse_pos)
@@ -151,18 +151,23 @@ class MatchView(BaseScreen):
             if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
                 if self.btn_dado_lateral.is_clicked(e): self.dice_ui.rolar(random.randint(1, 20))
                 if self.btn_passar_fase.is_clicked(e): self.controller.next_phase()
-                for i, c in enumerate(self.mao_ui):
-                    if c.is_clicked(e): self._processar_clique_mao(c.card, i); break
+                for i, cui in enumerate(self.mao_ui):
+                    if cui.is_clicked(e): self._processar_clique_mao(cui.card, i); break
         return None
 
     def draw(self):
         self.screen.fill(BG)
+        # 1. Sincroniza dados do modelo com as zonas visuais
         self.controller.sincronizar_view(self.zonas)
-        for p_id in self.match.players.keys(): self._desenhar_mesa_jogador(p_id)
+        
+        # 2. Desenha o campo e os jogadores
+        for p_id in self.match.players.keys(): 
+            self._desenhar_mesa_jogador(p_id)
+            self._renderizar_cartas_no_campo(p_id)
 
-        # BARRAS FIXAS
-        jogador_ativo_nome = self.match.get_active_player().name
-        self.phase_bar_ui.draw(self.screen, self.match.phase, jogador_ativo_nome)
+        # 3. Desenha barras fixas
+        jogador_ativo = self.match.get_active_player().name
+        self.phase_bar_ui.draw(self.screen, self.match.phase, jogador_ativo)
         pygame.draw.rect(self.screen, (25, 25, 30), (0, self.altura - 60, self.largura, 60))
         pygame.draw.rect(self.screen, ACCENT, (0, self.altura - 60, self.largura, 2))
         self.btn_dado_lateral.draw(self.screen); self.btn_passar_fase.draw(self.screen)
@@ -176,22 +181,29 @@ class MatchView(BaseScreen):
         elif self.fase_jogo == "MULLIGAN": self._desenhar_painel_mulligan(cx, cy)
         elif self.dice_ui.ativo: self.dice_ui.draw(self.screen)
 
+    def _renderizar_cartas_no_campo(self, p_id):
+        """Renderiza fisicamente as cartas que estão no battlefield do jogador."""
+        for nome_z, zona_ui in self.zonas[p_id].items():
+            if nome_z in ["CAMPO", "MANA", "COMANDANTE"]:
+                for card_model in zona_ui.cards:
+                    mid = id(card_model)
+                    if mid not in self.controller.ui_manager.ui_cards_cache:
+                        self.controller.ui_manager.ui_cards_cache[mid] = CardUI(
+                            card_model, self.asset_manager, zona_ui.rect.x, zona_ui.rect.y, self.card_w, self.card_h
+                        )
+                    cui = self.controller.ui_manager.ui_cards_cache[mid]
+                    # As zonas cuidam do posicionamento via LayoutEngine internamente
+                    cui.draw(self.screen)
+
     def _desenhar_animacao_embaralhar(self, cx, cy):
-        """O efeito visual das cartas voando voltou!"""
         overlay = pygame.Surface((self.largura, self.altura), pygame.SRCALPHA); overlay.fill((0, 0, 0, 200)); self.screen.blit(overlay, (0, 0))
         t = pygame.time.get_ticks() - self.tempo_animacao
         if t > 2000: self.fase_jogo = "MULLIGAN"
-        
-        # Matemática das cartas voando
-        distancia = abs(math.sin(t * 0.01)) * 130 
+        dist = abs(math.sin(t * 0.01)) * 130 
         w, h = self.card_w, self.card_h
-        
         for i in range(5):
-            # Lado Esquerdo
-            self._render_verso_simples(pygame.Rect(cx - w//2 - distancia - (i*6), cy - h//2, w, h))
-            # Lado Direito
-            self._render_verso_simples(pygame.Rect(cx - w//2 + distancia + (i*6), cy - h//2, w, h))
-            
+            self._render_verso_simples(pygame.Rect(cx - w//2 - dist - (i*6), cy - h//2, w, h))
+            self._render_verso_simples(pygame.Rect(cx - w//2 + dist + (i*6), cy - h//2, w, h))
         txt = self.fontes['titulo'].render(f"EMBARALHANDO{'.' * ((t // 300) % 4)}", True, ACCENT)
         self.screen.blit(txt, (cx - txt.get_width()//2, cy + h + 20))
 
@@ -205,17 +217,13 @@ class MatchView(BaseScreen):
         id_v = 1 if p_id == "P1" else 2
         area = self._get_area_jogador(id_v, 2)
         pygame.draw.rect(self.screen, (30, 30, 45) if id_v==1 else (25, 25, 35), area)
-        
         txt = self.fontes['label'].render(f"{player.name.upper()} | {player.life} PV", True, TEXT_PRIMARY)
         self.screen.blit(txt, (area.centerx - txt.get_width()//2, area.y + 10))
-        
         self.mana_bar_ui.draw(self.screen, player, area)
         for nome, z in self.zonas[p_id].items():
             if nome != "GRIMORIO": z.draw(self.screen)
-        
         z_deck = self.zonas[p_id]["GRIMORIO"]
         self._render_grimorio(z_deck.rect.centerx - self.card_w//2, z_deck.rect.centery - self.card_h//2, len(player.deck.library))
-
         if id_v == 1: self._renderizar_mao(player.hand, area)
         else:
             txt_m = self.fontes['label'].render(f"Mão: {len(player.hand)} cartas", True, TEXT_SEC)
@@ -238,11 +246,10 @@ class MatchView(BaseScreen):
         caixa = pygame.Rect(cx - 200, cy - 80, 400, 160)
         pygame.draw.rect(self.screen, (30, 30, 35), caixa, border_radius=10)
         pygame.draw.rect(self.screen, ACCENT, caixa, 2, border_radius=10)
-        txt = self.fontes['label'].render("MÃO INICIAL ESTÁ BOA?", True, TEXT_PRIMARY)
-        self.screen.blit(txt, (cx - txt.get_width()//2, cy - 60))
         self.btn_manter_mao.draw(self.screen); self.btn_trocar_mao.draw(self.screen)
 
     def _processar_clique_mao(self, card, index):
         if card.is_land: self.controller.play_land("P1", index)
         elif card.is_creature: self.controller.cast_creature("P1", index)
         else: self.controller.cast_other("P1", index)
+        self.mao_ui.clear() # Limpa para forçar o redesenho da mão

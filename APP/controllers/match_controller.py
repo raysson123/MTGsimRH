@@ -30,8 +30,8 @@ class MatchController:
 
     def iniciar_partida(self, primeiro_jogador_id: str):
         """
-        Chamado PELA MESA após o vencedor do dado ser decidido.
-        É aqui que o jogo realmente começa e as cartas são compradas.
+        Chamado após o vencedor do dado ser decidido.
+        Prepara a mão inicial e define a fase de partida.
         """
         self.match_model.active_player_id = primeiro_jogador_id
         
@@ -46,9 +46,7 @@ class MatchController:
         
         self._simular_mesa_bot(p2)
         
-        # ========================================================
-        # Força o jogo a iniciar na fase PRINCIPAL 1
-        # ========================================================
+        # Inicia na fase PRINCIPAL 1 conforme as regras oficiais
         try:
             self.match_model.current_phase_index = self.match_model.phases.index("PRINCIPAL 1")
         except ValueError:
@@ -58,21 +56,31 @@ class MatchController:
         print(f"\n[TURNO 1] As cartas foram compradas! {primeiro_nome} começa na fase {self.match_model.phase}!")
 
     # =========================================================
-    # SISTEMA DE MULLIGAN E VIEW
+    # SINCRONIZAÇÃO E VIEW (O PULO DO GATO PARA AS CARTAS APARECEREM)
     # =========================================================
-    def executar_mulligan(self, player_id: str):
-        player = self.match_model.players.get(player_id)
-        if player:
-            player.return_hand_to_deck()
-            player.draw_cards(7)
-            print(f"[MESA] {player.name} fez Mulligan e comprou 7 novas cartas.")
-
     def sincronizar_view(self, zonas_view):
-        if self.match_model and self.ui_manager:
-            self.ui_manager.preparar_mesa_inicial(self.match_model, zonas_view)
+        """
+        Distribui as cartas do PlayerModel para as zonas visuais (ZoneUI).
+        """
+        if not self.match_model: return
+
+        for p_id, player in self.match_model.players.items():
+            # Limpa as listas de cartas visuais antes de repopular para evitar duplicatas
+            for zona in zonas_view[p_id].values():
+                zona.cards = []
+
+            # Encaminha as cartas para suas respectivas zonas na tela
+            zonas_view[p_id]["MANA"].cards = player.battlefield_lands
+            zonas_view[p_id]["CAMPO"].cards = player.battlefield_creatures + player.battlefield_other
+            zonas_view[p_id]["CEMITERIO"].cards = player.graveyard
+            zonas_view[p_id]["EXILIO"].cards = player.exile
+            
+            # Posiciona o Comandante na zona dele
+            if player.deck.commander_card:
+                zonas_view[p_id]["COMANDANTE"].cards = [player.deck.commander_card]
 
     # =========================================================
-    # AÇÕES DO JOGADOR (Processamento de Cliques)
+    # AÇÕES DO JOGADOR
     # =========================================================
     def play_land(self, player_id: str, hand_index: int):
         player = self.match_model.players.get(player_id)
@@ -83,10 +91,7 @@ class MatchController:
         
         if permitido:
             player.play_land(hand_index)
-            if hasattr(player, 'lands_played_this_turn'):
-                player.lands_played_this_turn += 1 
-            else:
-                player.lands_played_this_turn = 1
+            player.lands_played_this_turn += 1
             print(f"[AÇÃO] {player.name} jogou: {card.name}")
         else:
             print(f"[BLOQUEADO] {motivo}")
@@ -118,24 +123,29 @@ class MatchController:
             print(f"[BLOQUEADO] {motivo}")
 
     # =========================================================
-    # CONTROLE DE FASES E TURNOS
+    # CONTROLE DE FASES E SISTEMA
     # =========================================================
     def next_phase(self):
-        """
-        Avança o ponteiro de fases do MatchModel.
-        O próprio MatchModel cuidará de passar o turno e limpar os contadores
-        quando chegar no final da última fase.
-        """
         self.match_model.next_phase()
         print(f"[TURNO] Fase atual: {self.match_model.phase}")
+
+    def executar_mulligan(self, player_id: str):
+        player = self.match_model.players.get(player_id)
+        if player:
+            player.deck.library.extend(player.hand)
+            player.hand = []
+            player.deck.embaralhar()
+            player.draw_cards(7)
+            print(f"[MESA] {player.name} fez Mulligan.")
 
     def mudar_vida(self, player_id: str, quantidade: int):
         player = self.match_model.players.get(player_id)
         if player:
-            if quantidade > 0: player.gain_life(quantidade)
-            else: player.take_damage(abs(quantidade))
+            if quantidade > 0: player.life += quantidade
+            else: player.life -= abs(quantidade)
 
     def _simular_mesa_bot(self, bot: PlayerModel):
+        """Simula o oponente baixando algo para teste visual."""
         if len(bot.hand) >= 3:
             bot.battlefield_lands.append(bot.hand.pop())
             bot.battlefield_creatures.append(bot.hand.pop())

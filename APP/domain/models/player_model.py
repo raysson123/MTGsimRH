@@ -22,35 +22,37 @@ class PlayerModel:
         # Controle de Regras de Turno
         self.lands_played_this_turn: int = 0
 
-        # ZONAS DE JOGO (Separadas para o LayoutEngine e ZoneUI)
+        # ZONAS DE JOGO (Sincronizadas com o MatchController e ZoneUI)
         self.hand: List[CardModel] = []
         self.battlefield_creatures: List[CardModel] = []
         self.battlefield_lands: List[CardModel] = []
-        self.battlefield_other: List[CardModel] = []
+        self.battlefield_other: List[CardModel] = [] # Artefatos/Encantamentos
         
         self.graveyard: List[CardModel] = []
         self.exile: List[CardModel] = []
+        
+        # O Comandante fica em uma lista para facilitar o render na zona de Comandante
         self.commander_zone: List[CardModel] = []
+        if self.deck.commander_card:
+            self.commander_zone.append(self.deck.commander_card)
 
     # =========================================================
     # AÇÕES COM CARTAS (Movimentação entre Zonas)
     # =========================================================
     
     def return_hand_to_deck(self):
-        """
-        DEVOLVE A MÃO PARA O GRIMÓRIO E EMBARALHA.
-        Essencial para o sistema de Mulligan.
-        """
+        """Essencial para o sistema de Mulligan."""
         self.deck.library.extend(self.hand)
         self.hand.clear()
         self.deck.embaralhar()
         print(f"[MODEL] {self.name} devolveu a mão e embaralhou o grimório.")
 
     def draw_cards(self, amount: int = 1):
-        """Puxa cartas do DeckModel. Se o deck acabar, o jogador perde."""
+        """Puxa cartas do DeckModel."""
         drawn_cards = []
         for _ in range(amount):
-            card = self.deck.comprar_carta()
+            # Usando o método que você já tem no seu DeckModel
+            card = self.deck.comprar_carta() 
             if card:
                 self.hand.append(card)
                 drawn_cards.append(card)
@@ -76,6 +78,7 @@ class PlayerModel:
             card = self.hand[card_index]
             if card.is_creature:
                 card = self.hand.pop(card_index)
+                # Criaturas entram com enjoo de invocação (definido no post_init do Model)
                 card.untap()
                 self.battlefield_creatures.append(card)
                 return card
@@ -90,37 +93,16 @@ class PlayerModel:
             return card
         return None
 
-    def discard_card(self, card_index: int):
-        """Remove da mão e envia para o cemitério, limpando marcadores."""
-        if 0 <= card_index < len(self.hand):
-            card = self.hand.pop(card_index)
-            card.remove_all_counters() # Regra: cartas no GY não mantêm buffs
-            self.graveyard.append(card)
-            return card
-        return None
-
     # =========================================================
-    # GESTÃO DE VIDA E REGRAS DE VITÓRIA
+    # GESTÃO DE VIDA E MANA
     # =========================================================
     def take_damage(self, amount: int):
         self.life -= amount
         if self.life <= 0:
             self.perder_jogo("Pontos de vida chegaram a zero.")
 
-    def take_commander_damage(self, opponent_id: str, amount: int):
-        """Aplica dano e checa a regra dos 21 pontos de Comandante."""
-        self.take_damage(amount)
-        current_dmg = self.commander_damage.get(opponent_id, 0) + amount
-        self.commander_damage[opponent_id] = current_dmg
-        if current_dmg >= 21:
-            self.perder_jogo(f"Recebeu 21 pontos de dano do Comandante de {opponent_id}.")
-
-    def add_poison(self, amount: int = 1):
-        self.poison_counters += amount
-        if self.poison_counters >= 10:
-            self.perder_jogo("Acumulou 10 contadores de veneno.")
-
     def reset_mana_pool(self):
+        """Limpa a mana pool ao mudar de fase ou turno."""
         for color in self.mana_pool:
             self.mana_pool[color] = 0
 
