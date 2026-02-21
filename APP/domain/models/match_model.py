@@ -1,5 +1,4 @@
 from typing import Dict, List
-# CORREÇÃO: Importando dos nomes de arquivos exatos que você criou (player_model e card_model)
 from APP.domain.models.player_model import PlayerModel
 from APP.domain.models.card_model import CardModel
 
@@ -18,8 +17,10 @@ class MatchModel:
         self.current_turn: int = 1
         self.active_player_id: str = player1.player_id
         
-        # FASES OFICIAIS (Manutenção do estado de jogo)
-        self.phases = ["UNTAP", "UPKEEP", "DRAW", "MAIN1", "COMBAT", "MAIN2", "END"]
+        # ==========================================
+        # AS 5 FASES OFICIAIS DE UMA RODADA DE MAGIC
+        # ==========================================
+        self.phases = ["INICIAL", "PRINCIPAL 1", "COMBATE", "PRINCIPAL 2", "FINAL"]
         self.current_phase_index: int = 0
         
         # A PILHA (Stack): Motor para mágicas e habilidades
@@ -29,7 +30,7 @@ class MatchModel:
 
     @property
     def phase(self) -> str:
-        """Retorna o nome da fase atual (Ex: 'COMBAT')."""
+        """Retorna o nome da fase atual (Ex: 'COMBATE')."""
         return self.phases[self.current_phase_index]
 
     def get_active_player(self) -> PlayerModel:
@@ -63,7 +64,7 @@ class MatchModel:
         
         self.current_phase_index += 1
         
-        # Se ultrapassou a fase 'END', reinicia e vira o turno
+        # Se ultrapassou a fase 'FINAL', reinicia e vira o turno
         if self.current_phase_index >= len(self.phases):
             self._pass_turn()
 
@@ -72,9 +73,13 @@ class MatchModel:
         self.current_phase_index = 0
         self.current_turn += 1
         
-        # Limpa a mana pool dos jogadores ao trocar de turno (Regra MTG)
+        # Limpa a mana pool E OS CONTADORES DE TURNO ao trocar de turno
         for p in self.players.values():
             p.reset_mana_pool()
+            
+            # Zera o limite de terrenos pro novo turno!
+            if hasattr(p, 'lands_played_this_turn'):
+                p.lands_played_this_turn = 0
         
         # Inverte o ID do jogador ativo
         opponent = self.get_opponent()
@@ -86,3 +91,4 @@ class MatchModel:
         
         novo_jogador = self.get_active_player()
         print(f"\n[MESA] --- TURNO {self.current_turn} --- Ativo: {novo_jogador.name}")
+    

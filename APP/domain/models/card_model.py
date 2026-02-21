@@ -5,19 +5,21 @@ import os
 class CardModel(BaseModel):
     """
     Representa uma única carta física na mesa de jogo.
-    Mistura os dados imutáveis do JSON com o estado mutável da partida.
+    Molde feito sob medida para o JSON do MTG Simulator.
     """
     
     # Ignora campos extras do JSON para evitar quebras
-    model_config = ConfigDict(extra='ignore')
+    model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
     # =========================================================
-    # 1. DADOS ESTÁTICOS
+    # 1. DADOS ESTÁTICOS (Exatamente como no seu JSON)
     # =========================================================
     name: str
+    printed_name: Optional[str] = ""
+    type_line: Optional[str] = "" 
+    categoria: Optional[str] = ""  # Captura a categoria em português do seu JSON
     mana_cost: Optional[str] = ""
     cmc: float = 0.0  
-    type_line: Optional[str] = "" 
     oracle_text: Optional[str] = ""
     
     colors: List[str] = Field(default_factory=list)
@@ -27,14 +29,25 @@ class CardModel(BaseModel):
     toughness: Optional[str] = None
     loyalty: Optional[str] = None
     
+    # Imagens e Raridade
+    image_url: Optional[str] = ""
+    rarity: Optional[str] = ""
     local_image_path: Optional[str] = None
+    
+    is_commander: bool = False
 
     # =========================================================
-    # 2. ESTADO DA PARTIDA
+    # 2. ESTADO DA PARTIDA (Mutável durante o jogo)
     # =========================================================
     is_tapped: bool = False
     is_face_down: bool = False
     counters: Dict[str, int] = Field(default_factory=dict) 
+    summoning_sickness: bool = False
+
+    def model_post_init(self, __context):
+        """Garante que criaturas entrem com enjoo de invocação."""
+        if self.is_creature:
+            self.summoning_sickness = True
 
     # =========================================================
     # 3. MÉTODOS DE AÇÃO
@@ -60,36 +73,68 @@ class CardModel(BaseModel):
         self.counters.clear()
 
     # =========================================================
-    # 4. HELPERS (PULO DO GATO PARA AS IMAGENS)
+    # 4. HELPERS DE TIPO (Blindados: Inglês e Português)
     # =========================================================
-    
-    def get_image_filename(self) -> str:
-        """
-        Extrai o nome do arquivo sem extensão do local_image_path.
-        Ex: 'assets/cards/Artefatos/bolas_citadel.jpg' -> 'bolas_citadel'
-        """
-        if self.local_image_path:
-            # Pega o nome do arquivo (ex: bolass_citadel.jpg)
-            base = os.path.basename(self.local_image_path)
-            # Remove a extensão (.jpg ou .png)
-            return os.path.splitext(base)[0]
-        return self.name.lower().replace(" ", "_")
-
     @property
     def is_land(self) -> bool:
-        return "Land" in (self.type_line or "")
+        tl = (self.type_line or "").lower()
+        cat = (self.categoria or "").lower()
+        return "land" in tl or "terreno" in cat or "terreno" in tl
 
     @property
     def is_creature(self) -> bool:
-        return "Creature" in (self.type_line or "")
+        tl = (self.type_line or "").lower()
+        cat = (self.categoria or "").lower()
+        return "creature" in tl or "criatura" in cat or "criatura" in tl
+
+    @property
+    def is_instant(self) -> bool:
+        tl = (self.type_line or "").lower()
+        cat = (self.categoria or "").lower()
+        return "instant" in tl or "mágica instantânea" in cat or "instantanea" in cat
+
+    @property
+    def is_sorcery(self) -> bool:
+        tl = (self.type_line or "").lower()
+        cat = (self.categoria or "").lower()
+        return "sorcery" in tl or "feitiço" in cat or "feitico" in cat
+
+    @property
+    def is_artifact(self) -> bool:
+        tl = (self.type_line or "").lower()
+        cat = (self.categoria or "").lower()
+        return "artifact" in tl or "artefato" in cat
+
+    @property
+    def is_enchantment(self) -> bool:
+        tl = (self.type_line or "").lower()
+        cat = (self.categoria or "").lower()
+        return "enchantment" in tl or "encantamento" in cat
+
+    @property
+    def is_planeswalker(self) -> bool:
+        tl = (self.type_line or "").lower()
+        cat = (self.categoria or "").lower()
+        return "planeswalker" in tl or "planeswalker" in cat
+
+    # =========================================================
+    # 5. ASSET HELPERS
+    # =========================================================
+    def get_image_filename(self) -> str:
+        """Extrai o nome do arquivo sem extensão."""
+        if self.local_image_path:
+            base = os.path.basename(self.local_image_path)
+            return os.path.splitext(base)[0]
+        return self.name.lower().replace(" ", "_")
 
     def get_category(self) -> str:
-        """Helper para o AssetManager encontrar a pasta correta."""
-        tl = (self.type_line or "").lower()
-        if "land" in tl: return "Terrenos"
-        if "creature" in tl: return "Criaturas"
-        if "artifact" in tl: return "Artefatos"
-        if "enchantment" in tl: return "Encantamentos"
-        if "instant" in tl: return "Instantaneas"
-        if "sorcery" in tl: return "Feiticos"
+        """Retorna a categoria limpa para uso do AssetManager."""
+        if self.categoria:
+            return self.categoria
+        if self.is_land: return "Terrenos"
+        if self.is_creature: return "Criaturas"
+        if self.is_artifact: return "Artefatos"
+        if self.is_enchantment: return "Encantamentos"
+        if self.is_instant: return "Instantaneas"
+        if self.is_sorcery: return "Feiticos"
         return "Outros"
