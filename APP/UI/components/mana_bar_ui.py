@@ -56,22 +56,46 @@ class ManaBarUI:
         return icones
 
     def draw(self, screen, player, area):
-        """Desenha a barra centralizada abaixo do nome do jogador."""
+        """Desenha a barra centralizada mostrando a Mana Disponível Total do jogador."""
         
-        # 🔥 BLINDAGEM DA MANA POOL: Lê corretamente a nova Classe de Mana
+        # 1. Pega a piscina de mana flutuante de forma segura
         mana_container = getattr(player, 'mana_pool', {})
         pool_dict = mana_container.pool if hasattr(mana_container, 'pool') else mana_container
         
-        # 🔥 AJUSTE DO Y: Subimos de 40 para 15 para alinhar com os painéis e sair do Campo!
         y = area.y + 15 
-        
         tipos_mana = ['W', 'U', 'B', 'R', 'G', 'C']
         espacamento = 55
         largura_total = len(tipos_mana) * espacamento
         start_x = area.centerx - (largura_total // 2)
         
         for i, m_type in enumerate(tipos_mana):
-            qtd = pool_dict.get(m_type, 0)
+            
+            # 🔥 PASSO A: Conta a mana que já foi gerada e está no cofre
+            qtd_flutuante = pool_dict.get(m_type, 0)
+            
+            # 🔥 PASSO B: O NOVO RADAR (Conta os terrenos no campo que ainda podem ser usados)
+            qtd_terrenos = 0
+            for card in getattr(player, 'battlefield_lands', []):
+                # Conta apenas se a carta NÃO estiver virada (is_tapped = False)
+                if not card.is_tapped:
+                    cor = "C" # Padrão incolor
+                    nome = card.name.lower()
+                    
+                    if "plains" in nome or "planície" in nome: cor = "W"
+                    elif "island" in nome or "ilha" in nome: cor = "U"
+                    elif "swamp" in nome or "pântano" in nome: cor = "B"
+                    elif "mountain" in nome or "montanha" in nome: cor = "R"
+                    elif "forest" in nome or "floresta" in nome: cor = "G"
+                    elif card.color_identity:
+                        cor_temp = card.color_identity[0].upper()
+                        if cor_temp in tipos_mana: cor = cor_temp
+                        
+                    if cor == m_type:
+                        qtd_terrenos += 1
+            
+            # 🔥 PASSO C: A SOMA DO PODER DE COMPRA REAL
+            total_disponivel = qtd_flutuante + qtd_terrenos
+            
             x = start_x + (i * espacamento)
             
             # Desenha o ícone
@@ -80,7 +104,8 @@ class ManaBarUI:
                 screen.blit(icone, (x, y))
             
             # Desenha a quantidade ao lado do ícone
-            cor_qtd = SUCCESS if qtd > 0 else TEXT_SEC
-            txt_qtd = self.fontes['label'].render(str(qtd), True, cor_qtd)
+            cor_qtd = SUCCESS if total_disponivel > 0 else TEXT_SEC
+            txt_qtd = self.fontes['label'].render(str(total_disponivel), True, cor_qtd)
+            
             # Alinhamento vertical centralizado com o ícone de 24px
             screen.blit(txt_qtd, (x + 28, y + (12 - txt_qtd.get_height() // 2)))

@@ -2,7 +2,6 @@ from APP.domain.models.match_model import MatchModel
 from APP.domain.models.player_model import PlayerModel
 from APP.domain.services.deck_builder import DeckBuilderService
 from APP.domain.services.rule_engine import RuleEngine
-from APP.domain.services.mana_manager import ManaManager 
 
 class MatchController:
     def __init__(self, ui_manager):
@@ -39,7 +38,10 @@ class MatchController:
         self.match_model.starting_player_id = primeiro_jogador_id
         
         primeiro_nome = self.match_model.players[primeiro_jogador_id].name
-        print(f"\n[TURNO 1] {primeiro_nome} começa na fase {self.match_model.phase}!")
+        
+        # Blindagem: Lê a fase corretamente caso seja um Enum
+        fase_nome = getattr(self.match_model.phase, 'value', self.match_model.phase)
+        print(f"\n[TURNO 1] {primeiro_nome} começa na fase {fase_nome}!")
         self.atualizar_playables()
 
     # =========================================================
@@ -50,38 +52,24 @@ class MatchController:
         if not self.match_model: return
         for p_id, player in self.match_model.players.items():
             for card in player.hand:
-                tipo = getattr(card, 'type_line', "").lower()
-                is_land = "land" in tipo or getattr(card, 'is_land', False)
-                
-                if is_land:
+                if card.is_land:
                     pode, _ = RuleEngine.validar_descida_terreno(self.match_model, p_id, card)
                 else:
                     pode, _ = RuleEngine.validar_conjuracao(self.match_model, p_id, card)
                 card.playable = pode
 
-    def virar_terreno_para_mana(self, player_id: str, card):
-        player = self.match_model.players.get(player_id)
-        if not player or not card.is_land or card.is_tapped:
-            return
-        cor_gerada = ManaManager.gerar_mana(player, card)
-        if cor_gerada:
-            card.tap()
-            print(f"[MANA] {player.name} virou {card.name} (+1 {cor_gerada})")
-            self.atualizar_playables()
-
     # =========================================================
-    # AÇÕES DE JOGO E MUDANÇA DE FASE
+    # AÇÕES DE JOGO UNIFICADAS
     # =========================================================
 
     def jogar_carta(self, player_id: str, hand_index: int):
+        """Método Central: Lida com terrenos, criaturas e feitiços."""
         player = self.match_model.players.get(player_id)
         if not player or hand_index >= len(player.hand): return
         
         card = player.hand[hand_index]
-        is_land = card.is_land
-        is_creature = card.is_creature
 
-        if is_land:
+        if card.is_land:
             pode, motivo = RuleEngine.validar_descida_terreno(self.match_model, player_id, card)
             if pode:
                 player.play_land(hand_index)
@@ -92,42 +80,88 @@ class MatchController:
         else:
             pode, motivo = RuleEngine.validar_conjuracao(self.match_model, player_id, card)
             if pode:
-                ManaManager.descontar_custo(player, card)
-                if is_creature:
-                    player.cast_creature(hand_index)
+                # 🔥 Usa a função blindada do próprio Player para cobrar a mana
+                if player.pay_mana(card.parsed_mana_cost):
+                    # Registra a regra de enjoo de invocação
+                    card.turn_entered = self.match_model.state.turn_number
+                    
+                    if card.is_creature:
+                        player.cast_creature(hand_index)
+                    else:
+                        player.cast_other(hand_index)
+                        
+                    print(f"[AÇÃO] {player.name} pagou custo e conjurou: {card.name}")
                 else:
-                    player.cast_other(hand_index)
-                print(f"[AÇÃO] {player.name} pagou custo e conjurou: {card.name}")
+                    print(f"[ERRO] {player.name} não tem mana para {card.name}.")
             else:
                 print(f"[BLOQUEADO] {card.name}: {motivo}")
 
         self.atualizar_playables()
 
+    # 🔥 BLINDAGENS DE COMPATIBILIDADE (Evitam que o jogo quebre se a UI chamar as funções antigas)
+    def play_land(self, player_id: str, hand_index: int):
+        self.jogar_carta(player_id, hand_index)
+
+    def cast_creature(self, player_id: str, hand_index: int):
+        self.jogar_carta(player_id, hand_index)
+
+    def cast_other(self, player_id: str, hand_index: int):
+        self.jogar_carta(player_id, hand_index)
+
+    # Lógica de Virar o Terreno na Mesa (Segura)
+    def virar_terreno_para_mana(self, player_id: str, card):
+        player = self.match_model.players.get(player_id)
+        if not player or not card.is_land or card.is_tapped or card not in player.battlefield_lands:
+            return
+            
+        card.tap()
+        cor_gerada = self._identificar_cor_terreno(card)
+        player.add_mana(cor_gerada, 1) # Usa a função oficial do PlayerModel
+        
+        print(f"[MANA] {player.name} virou {card.name} (+1 {cor_gerada})")
+        self.atualizar_playables()
+
+    # Aliás de segurança para o clique da UI
+    def tap_land_for_mana(self, player_id: str, card):
+        self.virar_terreno_para_mana(player_id, card)
+
+    def _identificar_cor_terreno(self, card) -> str:
+        """Função interna segura para garantir que a mana saia na cor certa."""
+        nome = card.name.lower()
+        if "mountain" in nome or "montanha" in nome: return "R"
+        if "forest" in nome or "floresta" in nome: return "G"
+        if "plains" in nome or "planície" in nome: return "W"
+        if "island" in nome or "ilha" in nome: return "U"
+        if "swamp" in nome or "pântano" in nome: return "B"
+        if card.color_identity:
+            return card.color_identity[0].upper()
+        return "C"
+
+    # =========================================================
+    # MUDANÇA DE FASE E REGRAS DE MANUTENÇÃO
+    # =========================================================
+
     def next_phase(self):
-        """Avança as fases e processa regras de manutenção (Untap e Draw)."""
-        # 1. Avança o estado no modelo
         self.match_model.next_phase()
         
-        # 2. Captura dados do estado atualizado
-        fase_atual = str(self.match_model.phase).upper()
+        fase_atual = getattr(self.match_model.phase, 'value', self.match_model.phase).upper()
         active_id = self.match_model.active_player_id
         player = self.match_model.players.get(active_id)
         
         if not player: return
 
-        # 3. Processa a Fase INICIAL (Untap + Draw unificados)
+        # Processa a Fase INICIAL
         if "INICIAL" in fase_atual or "UNTAP" in fase_atual:
-            # A) DESVIRAR E RESETAR POOL
+            # Desvira tudo
             todas_cartas = player.battlefield_lands + player.battlefield_creatures + player.battlefield_other
             for c in todas_cartas:
                 c.untap()
             
             player.lands_played_this_turn = 0
-            player.mana_pool = {k: 0 for k in player.mana_pool}
-            print(f"[REGRAS] Turno de {player.name}: Tudo desvirado e Pool resetada.")
+            print(f"[REGRAS] Turno de {player.name}: Tudo desvirado.")
 
-            # B) COMPRA AUTOMÁTICA (Regra Turno 1)
-            turno_global = getattr(self.match_model, 'turn_count', 1)
+            # COMPRA AUTOMÁTICA
+            turno_global = getattr(self.match_model.state, 'turn_number', 1)
             starter_id = getattr(self.match_model, 'starting_player_id', None)
 
             if turno_global == 1 and active_id == starter_id:
@@ -136,14 +170,14 @@ class MatchController:
                 player.draw_cards(1)
                 print(f"[REGRAS] {player.name} comprou a carta do turno.")
 
-        # 4. LIMPEZA DE MANA (Sempre ocorre ao mudar de qualquer fase)
-        player.mana_pool = {k: 0 for k in player.mana_pool}
+        # 🔥 CORREÇÃO CRÍTICA: Usa a função oficial do PlayerModel para esvaziar a mana!
+        player.reset_mana_pool()
         
         self.atualizar_playables()
         print(f"[TURNO] Fase atual: {fase_atual}")
 
     # =========================================================
-    # UTILITÁRIOS E SINCRONIZAÇÃO
+    # UTILITÁRIOS E BOT
     # =========================================================
 
     def sincronizar_view(self, zones_view):
@@ -174,6 +208,14 @@ class MatchController:
             else: player.take_damage(abs(quantidade))
 
     def _simular_mesa_bot(self, bot: PlayerModel):
-        if len(bot.hand) >= 3:
-            bot.battlefield_lands.append(bot.hand.pop())
-            bot.battlefield_creatures.append(bot.hand.pop())
+        """Correção do bot: Ele procura a carta antes de dar pop cego!"""
+        terrenos = [c for c in bot.hand if c.is_land]
+        criaturas = [c for c in bot.hand if c.is_creature]
+        
+        if terrenos:
+            idx = bot.hand.index(terrenos[0])
+            bot.battlefield_lands.append(bot.hand.pop(idx))
+            
+        if criaturas:
+            idx = bot.hand.index(criaturas[0])
+            bot.battlefield_creatures.append(bot.hand.pop(idx))
