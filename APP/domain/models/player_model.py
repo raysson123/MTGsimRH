@@ -12,6 +12,16 @@ class PlayerModel:
         self.name = name
         self.deck = deck
         
+        #mana poll
+        self.mana_pool = {
+            "W": 0, 
+            "U": 0, 
+            "B": 0, 
+            "R": 0, 
+            "G": 0, 
+            "C": 0
+        }
+        
         # STATUS DO JOGADOR
         self.life: int = starting_life
         self.poison_counters: int = 0
@@ -56,6 +66,7 @@ class PlayerModel:
             if card:
                 self.hand.append(card)
                 drawn_cards.append(card)
+                print(f"[DEBUG] {self.name} tentando comprar {amount} carta(s)...")
             else:
                 self.perder_jogo("Tentou comprar de um grimório vazio (Mill).")
                 break

@@ -13,8 +13,7 @@ from APP.UI.components.button import MenuButton
 from APP.UI.components.dice_ui import DiceOverlayUI
 from APP.UI.components.mana_bar_ui import ManaBarUI
 from APP.UI.components.phase_bar_ui import PhaseBarUI
-
-# 🚨 PULO DO GATO: A importação do RuleEngine foi DELETADA. A UI não pensa mais, só obedece!
+from APP.UI.components.card_effects import CardEffects  # Gerenciador de cliques
 
 class MatchView(BaseScreen):
     def __init__(self, screen, controller, asset_manager): 
@@ -146,6 +145,15 @@ class MatchView(BaseScreen):
             if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
                 if self.btn_dado_lateral.is_clicked(e): self.dice_ui.rolar(random.randint(1, 20))
                 if self.btn_passar_fase.is_clicked(e): self.controller.next_phase()
+                
+                # GERAÇÃO DE MANA
+                zona_mana = self.zonas["P1"]["MANA"]
+                for card_ui in zona_mana.cards_ui:
+                    if card_ui.rect.collidepoint(mouse_pos):
+                        CardEffects.handle_click(self.controller, "P1", card_ui)
+                        return None 
+
+                # CLIQUE NA MÃO
                 for i, cui in enumerate(self.mao_ui):
                     if cui.is_clicked(e) and not getattr(cui, 'is_disabled', False): 
                         self._processar_clique_mao(cui.card, i); break
@@ -153,15 +161,11 @@ class MatchView(BaseScreen):
 
     def draw(self):
         self.screen.fill(BG)
-        # 1. SINCRONIZAÇÃO: Garante que os modelos do Controller virem UIs nas zonas
         self.controller.sincronizar_view(self.zonas)
         
-        # 2. DESENHO DAS MESAS
         for p_id in self.match.players.keys(): 
             self._desenhar_mesa_jogador(p_id)
 
-        # 3. BARRAS FIXAS
-        # 🔥 CORREÇÃO DE SEGURANÇA: Se o jogo não começou, não tenta pegar o nome!
         player_ativo = self.match.get_active_player()
         nome_jogador_ativo = player_ativo.name if player_ativo else "PREPARANDO..."
         
@@ -184,24 +188,65 @@ class MatchView(BaseScreen):
         player = self.match.players[p_id]
         id_v = 1 if p_id == "P1" else 2
         area = self._get_area_jogador(id_v, 2)
+        
+        # Fundo do Playmat
         pygame.draw.rect(self.screen, (30, 30, 45) if id_v==1 else (25, 25, 35), area)
         
-        txt = self.fontes['label'].render(f"{player.name.upper()} | {player.life} PV", True, TEXT_PRIMARY)
-        self.screen.blit(txt, (area.centerx - txt.get_width()//2, area.y + 10))
+        # =========================================================
+        # 🔥 RELOCAÇÃO DOS PAINÉIS DE INFORMAÇÃO SUPERIOR
+        # =========================================================
+        col_w = area.width * 0.16
+        margin = 15
         
+        # P1 fica na esquerda, P2 na direita (Nome e Vida)
+        box_x = area.x + margin if id_v == 1 else area.right - col_w - margin
+        box_y = area.y + 10 # Dá um respiro da borda
+        
+        caixa_nome = pygame.Rect(box_x, box_y, col_w, 35)
+        cor_borda = ACCENT if id_v == 1 else DANGER
+        
+        # Fundo do Painel de Nome
+        pygame.draw.rect(self.screen, (20, 20, 25), caixa_nome, border_radius=6)
+        pygame.draw.rect(self.screen, cor_borda, caixa_nome, 2, border_radius=6)
+        
+        # Textos de Nome
+        nome_curto = player.name.upper()[:15]
+        txt_nome = self.fontes['label'].render(nome_curto, True, TEXT_PRIMARY)
+        
+        cor_vida = SUCCESS if player.life >= 20 else DANGER
+        txt_vida = self.fontes['label'].render(f"{player.life} PV", True, cor_vida)
+        
+        # Desenha textos de Nome/Vida
+        self.screen.blit(txt_nome, (caixa_nome.x + 10, caixa_nome.centery - txt_nome.get_height()//2))
+        self.screen.blit(txt_vida, (caixa_nome.right - txt_vida.get_width() - 10, caixa_nome.centery - txt_vida.get_height()//2))
+        
+        # Barra de Mana Centralizada
         self.mana_bar_ui.draw(self.screen, player, area)
         
+        # Desenho das Zonas de Cartas
         for nome, z in self.zonas[p_id].items():
             if nome != "GRIMORIO": z.draw(self.screen)
         
         z_deck = self.zonas[p_id]["GRIMORIO"]
         self._render_grimorio(z_deck.rect.centerx - self.card_w//2, z_deck.rect.centery - self.card_h//2, len(player.deck.library))
         
+        # =========================================================
+        # 🔥 NOVO PAINEL PARA A QUANTIDADE DE CARTAS DO OPONENTE
+        # =========================================================
         if id_v == 1: 
             self._renderizar_mao(player.hand, area)
         else:
-            txt_m = self.fontes['label'].render(f"Mão: {len(player.hand)} cartas", True, TEXT_SEC)
-            self.screen.blit(txt_m, (area.centerx - txt_m.get_width()//2, area.bottom - 25))
+            # Oponente ganha um painel na ESQUERDA com as cartas da mão
+            box_mao_x = area.x + margin
+            caixa_mao = pygame.Rect(box_mao_x, box_y, col_w, 35) # Alinhado exatamente na mesma altura (Y) do nome
+            
+            # Fundo e Borda
+            pygame.draw.rect(self.screen, (20, 20, 25), caixa_mao, border_radius=6)
+            pygame.draw.rect(self.screen, (80, 80, 100), caixa_mao, 2, border_radius=6)
+            
+            # Texto da mão centralizado no novo painel
+            txt_m = self.fontes['label'].render(f"MÃO: {len(player.hand)} CARTAS", True, TEXT_SEC)
+            self.screen.blit(txt_m, (caixa_mao.centerx - txt_m.get_width()//2, caixa_mao.centery - txt_m.get_height()//2))
 
     def _renderizar_mao(self, h_m, area):
         mouse_pos = pygame.mouse.get_pos()
@@ -224,7 +269,6 @@ class MatchView(BaseScreen):
             cui.rect.width, cui.rect.height = w_z, h_z 
             cui.update_position(x, y)
             
-            # 🔥 ARQUITETURA MVC LIMPA: A tela apenas LÊ a propriedade definida pelo Controller!
             cui.is_disabled = not getattr(model, 'playable', False)
             
             self.mao_ui.append(cui)
