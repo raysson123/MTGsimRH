@@ -1,69 +1,80 @@
 from typing import Tuple
 from APP.domain.models.match_model import MatchModel
 from APP.domain.models.card_model import CardModel
+from APP.domain.models.game_state import Phase
 
 class RuleEngine:
+    """
+    O Juiz da partida. Contém puramente a lógica e as regras do Magic.
+    NÃO TEM NADA DE UI AQUI. Ele apenas avalia as condições do Model.
+    """
+
     @staticmethod
     def validar_descida_terreno(match: MatchModel, player_id: str, card: CardModel) -> Tuple[bool, str]:
-        """
-        Regra: 1 terreno por turno, apenas no seu turno e nas fases PRINCIPAIS.
-        """
-        # 1. É o turno do jogador?
-        if match.active_player_id != player_id:
-            return False, "Não é o seu turno!"
-
-        # 2. Está na fase correta? (PRINCIPAL 1 ou PRINCIPAL 2)
-        if match.phase not in ["PRINCIPAL 1", "PRINCIPAL 2"]:
-            return False, f"Você não pode baixar terrenos na fase {match.phase}."
-
-        # 3. Já baixou terreno este turno? 
-        player = match.players[player_id]
-        if hasattr(player, 'lands_played_this_turn') and player.lands_played_this_turn >= 1:
-            return False, "BLOQUEADO: Você já baixou um terreno este turno."
-
-        # 4. É realmente um terreno?
+        """Regra: 1 terreno por turno, apenas no seu turno e nas fases PRINCIPAIS."""
         if not card.is_land:
-            return False, f"{card.name} não é um terreno!"
+            return False, "A carta não é um terreno."
 
-        return True, "Jogada permitida."
+        if match.state.active_player_id != player_id:
+            return False, "Não é o seu turno."
+
+        if match.state.current_phase not in [Phase.PRINCIPAL_1, Phase.PRINCIPAL_2]:
+            return False, "Terrenos só podem ser descidos nas fases Principais."
+
+        player = match.players[player_id]
+        if player.lands_played_this_turn >= 1:
+            return False, "Limite de 1 terreno por turno atingido."
+
+        return True, "Jogada legal."
 
     @staticmethod
     def validar_conjuracao(match: MatchModel, player_id: str, card: CardModel) -> Tuple[bool, str]:
-        """
-        Regra: Verifica custo de mana e tempo (sorcery speed).
-        """
+        """Regra: Verifica custo de mana e timing da mágica."""
         player = match.players[player_id]
+        fase = match.state.current_phase
 
-        # 1. Checagem de Turno e Fase (Mágicas normais só na Main Phase)
-        if match.active_player_id != player_id:
-            # Futuro: Aqui entra a exceção para cartas com 'Flash' ou tipo 'Instant'
-            return False, "Você só pode conjurar feitiços/criaturas no seu turno."
-
-        # Sincronizado para as Fases em Português
-        if match.phase not in ["PRINCIPAL 1", "PRINCIPAL 2"]:
-            return False, f"Conjuração permitida apenas nas Fases Principais (Atual: {match.phase})."
-
-        # 2. Checagem de Custo de Mana
-        # Soma TODAS as manas disponíveis no pool (W, U, B, R, G, C)
-        total_mana_disponivel = sum(player.mana_pool.values())
+        # ==========================================
+        # 1. TIMING (Velocidade da Mágica)
+        # ==========================================
+        is_instant_speed = card.is_instant or card.has_flash
         
-        if total_mana_disponivel < card.cmc:
-            return False, f"Mana insuficiente! Você tem {total_mana_disponivel} e precisa de {card.cmc}."
+        if not is_instant_speed:
+            if match.state.active_player_id != player_id:
+                return False, "Feitiços, Artefatos e Criaturas normais só podem ser jogados no seu turno."
+            if fase not in [Phase.PRINCIPAL_1, Phase.PRINCIPAL_2]:
+                return False, "Isso só pode ser conjurado em uma Fase Principal."
 
-        # Futuro: Criar lógica para descontar a mana exata da cor (W, U, B, R, G) após a validação
-        return True, "Mana disponível!"
+        # ==========================================
+        # 2. SISTEMA DE MANA COLORIDA CORRETA
+        # ==========================================
+        # 🔥 A CORREÇÃO: O Juiz agora pergunta para o nosso novo objeto ManaPool!
+        if card.parsed_mana_cost:
+            if not player.mana_pool.can_pay(card.parsed_mana_cost):
+                return False, "Mana insuficiente para cobrir o custo da mágica."
+        else:
+            # Fallback de segurança: se a carta não tem custo parseado, olha só o CMC geral
+            total_mana = player.mana_pool.get_total()
+            if total_mana < card.cmc:
+                return False, f"Mana insuficiente. Você tem {total_mana} e o custo é {card.cmc}."
+
+        return True, "Mana e Timing OK."
 
     @staticmethod
-    def pode_atacar(match: MatchModel, player_id: str, creature: CardModel) -> Tuple[bool, str]:
-        """
-        Regra: Criaturas não podem atacar no turno em que entram (Enjoô de Invocação) ou se estiverem viradas.
-        """
-        # Sincronizado para a Fase de Combate
-        if match.phase != "COMBATE":
-            return False, "Você só pode declarar ataque na fase de COMBATE."
+    def pode_atacar(match: MatchModel, player_id: str, card: CardModel) -> Tuple[bool, str]:
+        """Regra: Verifica enjoo de invocação e estado da carta no combate."""
+        if not card.is_creature:
+            return False, "Apenas criaturas atacam."
             
-        if creature.is_tapped:
+        if match.state.active_player_id != player_id:
+            return False, "Você não pode atacar no turno do oponente."
+            
+        if match.state.current_phase != Phase.COMBATE:
+            return False, "Ataques só podem ser declarados na fase de COMBATE."
+            
+        if card.is_tapped:
             return False, "Esta criatura já está virada e não pode atacar."
 
-        # Futuro: Checar 'Summoning Sickness' (se entrou neste turno) e 'Haste' (Ímpeto)
+        if card.turn_entered == match.state.turn_number and not card.has_haste:
+            return False, "Criatura com enjoo de invocação (Summoning Sickness) não pode atacar sem Ímpeto."
+
         return True, "Ataque disponível."

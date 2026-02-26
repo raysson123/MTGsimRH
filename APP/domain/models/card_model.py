@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict
 import os
+import re
 
 class CardModel(BaseModel):
     """
@@ -14,7 +15,7 @@ class CardModel(BaseModel):
     # =========================================================
     # 1. DADOS ESTÁTICOS (Exatamente como no seu JSON)
     # =========================================================
-    name: str
+    name: str = "Carta Desconhecida"
     printed_name: Optional[str] = ""
     type_line: Optional[str] = "" 
     categoria: Optional[str] = ""  # Captura a categoria em português do seu JSON
@@ -44,6 +45,7 @@ class CardModel(BaseModel):
     is_face_down: bool = False
     counters: Dict[str, int] = Field(default_factory=dict) 
     summoning_sickness: bool = False
+    turn_entered: int = -1 # 🔥 NOVO: Turno em que a carta desceu pro campo (Para o RuleEngine)
     
     # PULO DO GATO: A flag que conecta a Regra com o Visual sem misturar código!
     playable: bool = False 
@@ -77,7 +79,7 @@ class CardModel(BaseModel):
         self.counters.clear()
 
     # =========================================================
-    # 4. HELPERS DE TIPO (Blindados: Inglês e Português)
+    # 4. HELPERS DE TIPO E REGRAS DO JUIZ
     # =========================================================
     @property
     def is_land(self) -> bool:
@@ -121,6 +123,30 @@ class CardModel(BaseModel):
         cat = (self.categoria or "").lower()
         return "planeswalker" in tl or "planeswalker" in cat
 
+    # 🔥 OS 3 MÉTODOS QUE O JUIZ (RuleEngine) PRECISA PARA NÃO QUEBRAR
+    @property
+    def has_flash(self) -> bool:
+        txt = (self.oracle_text or "")
+        return "Flash" in txt or "Lampejo" in txt
+
+    @property
+    def has_haste(self) -> bool:
+        txt = (self.oracle_text or "")
+        return "Haste" in txt or "Ímpeto" in txt
+
+    @property
+    def parsed_mana_cost(self) -> Dict[str, int]:
+        """Lê strings como '{1}{R}{R}' e traduz para {'generic': 1, 'R': 2}."""
+        if not self.mana_cost: return {}
+        custo = {}
+        simbolos = re.findall(r'\{(.*?)\}', self.mana_cost)
+        for s in simbolos:
+            if s.isdigit():
+                custo["generic"] = custo.get("generic", 0) + int(s)
+            else:
+                custo[s] = custo.get(s, 0) + 1
+        return custo
+
     # =========================================================
     # 5. ASSET HELPERS
     # =========================================================
@@ -133,8 +159,7 @@ class CardModel(BaseModel):
 
     def get_category(self) -> str:
         """Retorna a categoria limpa para uso do AssetManager."""
-        if self.categoria:
-            return self.categoria
+        if self.categoria: return self.categoria
         if self.is_land: return "Terrenos"
         if self.is_creature: return "Criaturas"
         if self.is_artifact: return "Artefatos"
